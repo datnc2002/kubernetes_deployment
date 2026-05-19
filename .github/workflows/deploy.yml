@@ -1,0 +1,56 @@
+name: CI/CD Data Pipeline Deployment
+
+on:
+  push:
+    branches: [ "main" ]
+
+# Định nghĩa biến môi trường sử dụng chung cho toàn Job
+env:
+  IMAGE_NAME: my-app
+  DEPLOYMENT_NAME: my-app-deployment
+  CONTAINER_NAME: my-app-container
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # [TỐI ƯU 1] Gán tag bằng Commit SHA để đảm bảo Versioning không bao giờ trùng lặp
+    - name: Set Image Tag
+      id: vars
+      run: echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+    - name: Build and Push Image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        # Tagging: Username/my-app:v-a1b2c3d
+        tags: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v-${{ env.COMMIT_SHA }}
+
+    # [TỐI ƯU 2] Giải mã Base64 thành file config chuẩn để tránh lỗi YAML Indentation
+    - name: Configure Kubernetes Context
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBE_CONFIG_BASE64 }}" | base64 --decode > ~/.kube/config
+        chmod 600 ~/.kube/config
+
+    # [TỐI ƯU 3] Triển khai mượt mà và chờ xác nhận trạng thái
+    - name: Deploy to GCP Kubernetes
+      run: |
+        # 1. Khai báo image mới, K8s sẽ tự động thay thế Pod cũ sang Pod mới (Rolling Update)
+        kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
+          ${{ env.CONTAINER_NAME }}=${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v-${{ env.COMMIT_SHA }}
+        
+        # 2. [QUAN TRỌNG] Chờ Rollout hoàn tất. Nếu Pod mới crash (OOM, lỗi logic), CI/CD sẽ báo FAILED ngay lập tức thay vì xanh giả tạo (False Positive)
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} --timeout=120s
