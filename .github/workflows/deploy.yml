@@ -4,7 +4,6 @@ on:
   push:
     branches: [ "main" ]
 
-# Định nghĩa biến môi trường sử dụng chung cho toàn Job
 env:
   IMAGE_NAME: my-app
   DEPLOYMENT_NAME: my-app-deployment
@@ -24,7 +23,6 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # [TỐI ƯU 1] Gán tag bằng Commit SHA để đảm bảo Versioning không bao giờ trùng lặp
     - name: Set Image Tag
       id: vars
       run: echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
@@ -35,22 +33,37 @@ jobs:
         context: .
         file: ./Dockerfile
         push: true
-        # Tagging: Username/my-app:v-a1b2c3d
         tags: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v-${{ env.COMMIT_SHA }}
 
-    # [TỐI ƯU 2] Giải mã Base64 thành file config chuẩn để tránh lỗi YAML Indentation
     - name: Configure Kubernetes Context
       run: |
         mkdir -p ~/.kube
         echo "${{ secrets.KUBE_CONFIG_BASE64 }}" | base64 --decode > ~/.kube/config
         chmod 600 ~/.kube/config
 
-    # [TỐI ƯU 3] Triển khai mượt mà và chờ xác nhận trạng thái
-    - name: Deploy to GCP Kubernetes
+    # [KHỐI THỰC THI MỚI] - Thay thế toàn bộ bước Deploy cũ
+    - name: Deploy to GCP Kubernetes (Declarative)
       run: |
-        # 1. Khai báo image mới, K8s sẽ tự động thay thế Pod cũ sang Pod mới (Rolling Update)
-        kubectl set image deployment/${{ env.DEPLOYMENT_NAME }} \
-          ${{ env.CONTAINER_NAME }}=${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v-${{ env.COMMIT_SHA }}
+        export IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v-${{ env.COMMIT_SHA }}"
+        echo "Bản build hiện tại: $IMAGE_TAG"
         
-        # 2. [QUAN TRỌNG] Chờ Rollout hoàn tất. Nếu Pod mới crash (OOM, lỗi logic), CI/CD sẽ báo FAILED ngay lập tức thay vì xanh giả tạo (False Positive)
+        # 1. Chốt chặn: Kiểm tra file template có tồn tại trên GitHub Repo không
+        if [ ! -f "k8s-deployment.yaml" ]; then
+          echo "LỖI TÀI LIỆU: Không tìm thấy file k8s-deployment.yaml ở thư mục gốc."
+          exit 1
+        fi
+        
+        # 2. Tiêm biến môi trường vào template, sinh ra file manifest cuối cùng
+        envsubst < k8s-deployment.yaml > final-k8s-manifest.yaml
+        
+        # 3. Chốt chặn Observability: In file cuối cùng ra log để rà soát (ẩn các secret)
+        echo "=== NỘI DUNG FILE MANIFEST SẼ TRIỂN KHAI ==="
+        cat final-k8s-manifest.yaml
+        echo "==========================================="
+        
+        # 4. Kích hoạt K8s đồng bộ trạng thái (Đảm bảo Idempotency)
+        # Tuyệt đối KHÔNG có lệnh kubectl set image ở đây nữa
+        kubectl apply -f final-k8s-manifest.yaml
+        
+        # 5. Kiểm soát Rollout
         kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} --timeout=120s
