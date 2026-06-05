@@ -115,6 +115,8 @@ spec:
         - "--conf"
         - "spark.executor.cores=2"
         - "--conf"
+        - "spark.kubernetes.executor.request.cores=500m"
+        - "--conf"
         - "spark.kubernetes.namespace=spark-etl"
         - "--conf"
         - "spark.kubernetes.container.image=${IMAGE_TAG}"
