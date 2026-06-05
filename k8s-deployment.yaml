@@ -122,9 +122,7 @@ spec:
         - "spark.executor.instances=3"
         # ── Cấu hình truyền GCP Key cho Executor ──
         - "--conf"
-        - "spark.kubernetes.executor.volumes.secret.gcp-key-volume.mount.path=/etc/gcp"
-        - "--conf"
-        - "spark.kubernetes.executor.volumes.secret.gcp-key-volume.options.secretName=gcp-key"
+        - "spark.kubernetes.executor.secrets.gcp-key=/etc/gcp"
         - "--conf"
         - "spark.executorEnv.GOOGLE_APPLICATION_CREDENTIALS=/etc/gcp/key.json"
         # ── GCS Auth (dùng JSON key mount từ K8s Secret) ──
