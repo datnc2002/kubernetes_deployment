@@ -52,7 +52,7 @@ metadata:
     app: spark-etl
 spec:
   backoffLimit: 2
-  ttlSecondsAfterFinished: 300
+  ttlSecondsAfterFinished: 600
   template:
     metadata:
       labels:
