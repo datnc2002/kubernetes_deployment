@@ -3,6 +3,27 @@
 # Cấu hình cho bài toán TLC HVFHV 2021 với 5 KPIs
 # ============================================================
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-etl-sa
+  namespace: spark-etl
+
+--- 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-etl-role-binding
+  namespace: spark-etl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+- kind: ServiceAccount
+  name: spark-etl-sa
+  namespace: spark-etl
+--- 
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: etl-job-config
@@ -59,6 +80,7 @@ spec:
         app: spark-etl
     spec:
       restartPolicy: Never
+      serviceAccountName: spark-etl-sa
 
       containers:
       - name: spark-etl-container
@@ -74,12 +96,24 @@ spec:
         - "/opt/spark/bin/spark-submit"
         args:
         - "--master"
-        - "local[*]"
+        - "k8s://https://10.148.0.3:6443"
+        - "--deploy-mode"
+        - "cluster"
         - "--class"
         - "com.etl.SparkETLApp"
         # ── Tài nguyên Spark ──
         - "--conf"
         - "spark.driver.memory=800m"
+        - "--conf"
+        - "spark.executor.memory=2g"
+        - "--conf"
+        - "spark.executor.cores=2"
+        - "--conf"
+        - "spark.kubernetes.namespace=spark-etl"
+        - "--conf"
+        - "spark.kubernetes.container.image=${IMAGE_TAG}"
+        - "--conf"
+        - "spark.executor.instances=3"
         # ── GCS Auth (dùng JSON key mount từ K8s Secret) ──
         - "--conf"
         - "spark.hadoop.google.cloud.auth.service.account.enable=true"
