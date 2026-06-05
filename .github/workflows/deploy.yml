@@ -1,69 +1,87 @@
-name: CI/CD Data Pipeline Deployment
+name: CI/CD Spark ETL Pipeline
 
 on:
   push:
     branches: [ "main" ]
 
 env:
-  IMAGE_NAME: my-app
-  DEPLOYMENT_NAME: my-app-deployment
-  CONTAINER_NAME: my-app-container
+  IMAGE_NAME: spark-etl
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
+    # 1. Lấy source code từ GitHub
     - name: Checkout Source Code
       uses: actions/checkout@v4
 
+    # 2. Đăng nhập Docker Hub
     - name: Login to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
+    # 3. Tạo image tag dựa trên commit SHA (để truy vết được bản build)
     - name: Set Image Tag
       id: vars
       run: echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-    - name: Build and Push Image
+    # 4. Thiết lập Docker Buildx cho multi-platform build
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # 5. Build Docker image từ spark-etl/Dockerfile và push lên Docker Hub
+    - name: Build and Push Spark ETL Image
       uses: docker/build-push-action@v5
       with:
-        context: .
-        file: ./Dockerfile
+        context: ./spark-etl
+        file: ./spark-etl/Dockerfile
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v-${{ env.COMMIT_SHA }}
 
+    # 6. Kết nối tới GKE cluster
     - name: Configure Kubernetes Context
       run: |
         mkdir -p ~/.kube
         echo "${{ secrets.KUBE_CONFIG_BASE64 }}" | base64 --decode > ~/.kube/config
         chmod 600 ~/.kube/config
 
-    # [KHỐI THỰC THI MỚI] - Thay thế toàn bộ bước Deploy cũ
-    - name: Deploy to GCP Kubernetes (Declarative)
+    # 7. Deploy ETL Job + History Server lên GKE
+    - name: Deploy Spark ETL Job to GKE
       run: |
         export IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v-${{ env.COMMIT_SHA }}"
-        echo "Bản build hiện tại: $IMAGE_TAG"
-        
-        # 1. Chốt chặn: Kiểm tra file template có tồn tại trên GitHub Repo không
-        if [ ! -f "k8s-deployment.yaml" ]; then
-          echo "LỖI TÀI LIỆU: Không tìm thấy file k8s-deployment.yaml ở thư mục gốc."
+        echo "Deploying image: $IMAGE_TAG"
+
+        # Kiểm tra file manifest tồn tại
+        if [ ! -f "k8s-deployment.yaml" ] || [ ! -f "history-server.yaml" ]; then
+          echo "ERROR: k8s-deployment.yaml or history-server.yaml not found"
           exit 1
         fi
-        
-        # 2. Tiêm biến môi trường vào template, sinh ra file manifest cuối cùng
-        envsubst < k8s-deployment.yaml > final-k8s-manifest.yaml
-        
-        # 3. Chốt chặn Observability: In file cuối cùng ra log để rà soát (ẩn các secret)
-        echo "=== NỘI DUNG FILE MANIFEST SẼ TRIỂN KHAI ==="
-        cat final-k8s-manifest.yaml
-        echo "==========================================="
-        
-        # 4. Kích hoạt K8s đồng bộ trạng thái (Đảm bảo Idempotency)
-        # Tuyệt đối KHÔNG có lệnh kubectl set image ở đây nữa
+
+        # Tiêm biến IMAGE_TAG vào cả 2 template
+        envsubst '$IMAGE_TAG' < k8s-deployment.yaml > final-k8s-manifest.yaml
+        envsubst '$IMAGE_TAG' < history-server.yaml > final-history-server.yaml
+
+        # Đảm bảo namespace spark-etl tồn tại
+        kubectl create namespace spark-etl --dry-run=client -o yaml | kubectl apply -f -
+
+        # ── Deploy History Server (Deployment — không cần xoá, K8s tự update) ──
+        kubectl apply -f final-history-server.yaml
+        echo "✅ History Server deployed"
+
+        # ── Deploy ETL Job (Job — phải xoá trước vì immutable) ──
+        kubectl delete job spark-etl-job -n spark-etl --ignore-not-found=true
         kubectl apply -f final-k8s-manifest.yaml
-        
-        # 5. Kiểm soát Rollout
-        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} --timeout=120s
+        echo "✅ ETL Job submitted"
+
+        # Chờ Job hoàn thành (timeout 10 phút)
+        kubectl wait --for=condition=complete job/spark-etl-job -n spark-etl --timeout=600s || {
+          echo "=== JOB LOGS ==="
+          kubectl logs job/spark-etl-job -n spark-etl --tail=100
+          echo "================"
+          exit 1
+        }
+
+        echo "🎉 Spark ETL Job completed successfully!"

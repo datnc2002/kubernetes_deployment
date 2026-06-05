@@ -1,0 +1,92 @@
+# ============================================================
+# Spark History Server — Giao diện UI xem lịch sử chạy Job
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-history-server
+  namespace: spark-etl
+  labels:
+    app: spark-history-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-history-server
+  template:
+    metadata:
+      labels:
+        app: spark-history-server
+    spec:
+      containers:
+      - name: history-server
+        image: ${IMAGE_TAG}
+        imagePullPolicy: Always
+
+        command: ["/opt/spark/sbin/start-history-server.sh"]
+
+        env:
+        # Đường dẫn Event Log trên GCS (cùng thư mục Job ghi vào)
+        - name: SPARK_HISTORY_OPTS
+          value: >-
+            -Dspark.history.fs.logDirectory=gs://k8s-deployment-bucket-datnc/spark-events/
+            -Dspark.history.fs.update.interval=10s
+            -Dspark.history.retainedApplications=50
+            -Dspark.history.ui.port=18080
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/etc/gcp/key.json"
+
+        ports:
+        - containerPort: 18080
+          name: http
+          protocol: TCP
+
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "500m"
+            memory: "768Mi"
+
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 18080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 18080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          
+        volumeMounts:
+        - name: gcp-key-volume
+          mountPath: /etc/gcp
+          readOnly: true
+
+      volumes:
+      - name: gcp-key-volume
+        secret:
+          secretName: gcp-key
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-history-server
+  namespace: spark-etl
+  labels:
+    app: spark-history-server
+spec:
+  type: ClusterIP
+  selector:
+    app: spark-history-server
+  ports:
+  - port: 18080
+    targetPort: 18080
+    protocol: TCP
+    name: http

@@ -1,0 +1,19 @@
+# Build output
+spark-etl/target/
+*.jar
+*.class
+
+# IDE
+.metals/
+.vscode/
+.bsp/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# K8s generated
+final-k8s-manifest.yaml
+key.json
+
