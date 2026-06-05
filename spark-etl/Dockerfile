@@ -26,7 +26,8 @@ COPY --from=builder /build/target/spark-etl-1.0.0.jar /opt/spark/work-dir/jars/s
 ADD https://repo1.maven.org/maven2/com/google/cloud/bigdataoss/gcs-connector/hadoop3-2.2.16/gcs-connector-hadoop3-2.2.16.jar /opt/spark/jars/
 
 # Phân quyền lại cho user spark (uid 185 là chuẩn của image apache/spark)
-RUN chown -R 185:185 /opt/spark/work-dir/jars && \
+RUN chmod 644 /opt/spark/jars/gcs-connector-hadoop3-2.2.16.jar && \
+    chown -R 185:185 /opt/spark/work-dir/jars && \
     chown -R 185:185 /opt/spark/work-dir/config
 
 # Quay lại user non-root để chạy pod trên K8s

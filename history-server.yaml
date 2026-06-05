@@ -37,6 +37,8 @@ spec:
             -Dspark.history.ui.port=18080
             -Dspark.hadoop.google.cloud.auth.service.account.enable=true
             -Dspark.hadoop.google.cloud.auth.service.account.json.keyfile=/etc/gcp/key.json
+            -Dspark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem
+            -Dspark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: "/etc/gcp/key.json"
 
