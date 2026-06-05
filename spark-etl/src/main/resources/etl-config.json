@@ -1,0 +1,20 @@
+{
+  "appName": "ETL_Default",
+  "transformMode": "sql",
+  "transformSQL": "SELECT * FROM raw_data",
+  "source": {
+    "path": "gs://your-data-bucket/raw/input/",
+    "format": "parquet",
+    "options": {
+      "header": "true",
+      "delimiter": ",",
+      "inferSchema": "true"
+    }
+  },
+  "sink": {
+    "path": "gs://your-data-bucket/output/default/",
+    "format": "parquet",
+    "mode": "overwrite",
+    "coalesceNum": 4
+  }
+}
