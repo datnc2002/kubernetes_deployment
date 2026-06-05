@@ -24,16 +24,19 @@ spec:
         image: ${IMAGE_TAG}
         imagePullPolicy: Always
 
-        command: ["/opt/spark/sbin/start-history-server.sh"]
+        # Chạy trực tiếp spark-class để tiến trình chạy ở Foreground (nếu dùng start-history-server.sh thì script sẽ chạy ngầm và K8s sẽ tưởng Pod đã xong rồi tắt đi)
+        command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
 
         env:
-        # Đường dẫn Event Log trên GCS (cùng thư mục Job ghi vào)
+        # Đường dẫn Event Log trên GCS và cấu hình xác thực GCS (mount từ Secret)
         - name: SPARK_HISTORY_OPTS
           value: >-
             -Dspark.history.fs.logDirectory=gs://k8s-deployment-bucket-datnc/spark-events/
             -Dspark.history.fs.update.interval=10s
             -Dspark.history.retainedApplications=50
             -Dspark.history.ui.port=18080
+            -Dspark.hadoop.google.cloud.auth.service.account.enable=true
+            -Dspark.hadoop.google.cloud.auth.service.account.json.keyfile=/etc/gcp/key.json
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: "/etc/gcp/key.json"
 
