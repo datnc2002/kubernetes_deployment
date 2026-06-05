@@ -23,10 +23,11 @@ COPY --from=builder /build/target/spark-etl-1.0.0.jar /opt/spark/work-dir/jars/s
 
 
 # Tải sẵn GCS Connector (nếu bạn cần đọc/ghi S3/GCS trong code)
-ADD https://repo1.maven.org/maven2/com/google/cloud/bigdataoss/gcs-connector/hadoop3-2.2.16/gcs-connector-hadoop3-2.2.16.jar /opt/spark/jars/
+# Sử dụng bản "-shaded" để bao gồm toàn bộ các class phụ thuộc (như google-api-client, guava)
+ADD https://repo1.maven.org/maven2/com/google/cloud/bigdataoss/gcs-connector/hadoop3-2.2.16/gcs-connector-hadoop3-2.2.16-shaded.jar /opt/spark/jars/
 
 # Phân quyền lại cho user spark (uid 185 là chuẩn của image apache/spark)
-RUN chmod 644 /opt/spark/jars/gcs-connector-hadoop3-2.2.16.jar && \
+RUN chmod 644 /opt/spark/jars/gcs-connector-hadoop3-2.2.16-shaded.jar && \
     chown -R 185:185 /opt/spark/work-dir/jars && \
     chown -R 185:185 /opt/spark/work-dir/config
 
