@@ -1,31 +1,124 @@
-apiVersion: apps/v1
-kind: Deployment
+# ============================================================
+# ConfigMap: Chứa file config JSON cho job ETL
+# Cấu hình cho bài toán TLC HVFHV 2021 với 5 KPIs
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: my-app-deployment
+  name: etl-job-config
+  namespace: spark-etl
+data:
+  etl-config.json: |
+    {
+      "appName": "TLC_HVFHV_2021_KPI",
+      "transformMode": "custom",
+      "transformName": "tlc_hvfhv_kpi",
+      "source": {
+        "path": "gs://k8s-deployment-bucket-datnc/raw/trips/",
+        "format": "parquet",
+        "options": {}
+      },
+      "extraSources": {
+        "dimension": {
+          "path": "gs://k8s-deployment-bucket-datnc/raw/taxi_zone_lookup/",
+          "format": "csv",
+          "options": {
+            "header": "true",
+            "inferSchema": "true"
+          }
+        }
+      },
+      "sink": {
+        "path": "gs://k8s-deployment-bucket-datnc/output/kpi/total_trips_by_zone/",
+        "format": "parquet",
+        "mode": "overwrite",
+        "coalesceNum": 1
+      },
+      "dlqPath": "gs://k8s-deployment-bucket-datnc/dlq/"
+    }
+
+---
+# ============================================================
+# Job: Chạy Spark ETL batch job
+# - Tài nguyên đã tối ưu cho worker node 2 vCPU / 2GB RAM
+# - Bật Event Log → Spark History Server đọc được
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spark-etl-job
+  namespace: spark-etl
   labels:
-    app: my-app
+    app: spark-etl
 spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: my-app
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
-        app: my-app
+        app: spark-etl
     spec:
+      restartPolicy: Never
+
       containers:
-      - name: my-app-container
-        # Chú ý: Biến ${IMAGE_TAG} sẽ được GitHub Actions tự động thay thế
+      - name: spark-etl-container
         image: ${IMAGE_TAG}
         imagePullPolicy: Always
-        ports:
-        - containerPort: 8080
-        # Luôn phải có giới hạn tài nguyên để K8s schedule Pod chuẩn xác, tránh memory leak
+
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/etc/gcp/key.json"
+
+        # spark-submit với cấu hình tối ưu cho node 2GB RAM
+        command:
+        - "/opt/spark/bin/spark-submit"
+        args:
+        - "--master"
+        - "local[*]"
+        - "--class"
+        - "com.etl.SparkETLApp"
+        # ── Tài nguyên Spark ──
+        - "--conf"
+        - "spark.driver.memory=800m"
+        # ── GCS Auth (dùng JSON key mount từ K8s Secret) ──
+        - "--conf"
+        - "spark.hadoop.google.cloud.auth.service.account.enable=true"
+        - "--conf"
+        - "spark.hadoop.google.cloud.auth.service.account.json.keyfile=/etc/gcp/key.json"
+        # ── Event Log (cho Spark History Server) ──
+        - "--conf"
+        - "spark.eventLog.enabled=true"
+        - "--conf"
+        - "spark.eventLog.dir=gs://k8s-deployment-bucket-datnc/spark-events/"
+        # ── KPI basePath (để CustomTransforms ghi 5 thư mục riêng) ──
+        - "--conf"
+        - "spark.etl.kpi.basePath=gs://k8s-deployment-bucket-datnc/output/kpi"
+        # ── JAR path ──
+        - "/opt/spark/work-dir/jars/spark-etl.jar"
+        # ── Config file path (mount từ ConfigMap) ──
+        - "/opt/spark/work-dir/config/etl-config.json"
+
+        # Tài nguyên container — phù hợp node 2 vCPU / 2GB RAM
         resources:
           requests:
-            cpu: "100m"
-            memory: "128Mi"
+            cpu: "500m"
+            memory: "1Gi"
           limits:
-            cpu: "250m"
-            memory: "256Mi"
+            cpu: "2"
+            memory: "1536Mi"
+
+        volumeMounts:
+        - name: etl-config-volume
+          mountPath: /opt/spark/work-dir/config
+          readOnly: true
+        - name: gcp-key-volume
+          mountPath: /etc/gcp
+          readOnly: true
+
+      volumes:
+      - name: etl-config-volume
+        configMap:
+          name: etl-job-config
+      - name: gcp-key-volume
+        secret:
+          secretName: gcp-key
