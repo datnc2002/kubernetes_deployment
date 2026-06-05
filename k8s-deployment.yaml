@@ -90,6 +90,10 @@ spec:
         env:
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: "/etc/gcp/key.json"
+        - name: SPARK_DRIVER_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
 
         # spark-submit với cấu hình tối ưu cho node 2GB RAM
         command:
@@ -98,10 +102,12 @@ spec:
         - "--master"
         - "k8s://https://10.148.0.3:6443"
         - "--deploy-mode"
-        - "cluster"
+        - "client"
         - "--class"
         - "com.etl.SparkETLApp"
         # ── Tài nguyên Spark ──
+        - "--conf"
+        - "spark.driver.host=$(SPARK_DRIVER_HOST)"
         - "--conf"
         - "spark.driver.memory=800m"
         - "--conf"
