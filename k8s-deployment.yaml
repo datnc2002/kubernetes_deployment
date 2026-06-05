@@ -85,6 +85,10 @@ spec:
         - "spark.hadoop.google.cloud.auth.service.account.enable=true"
         - "--conf"
         - "spark.hadoop.google.cloud.auth.service.account.json.keyfile=/etc/gcp/key.json"
+        - "--conf"
+        - "spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"
+        - "--conf"
+        - "spark.hadoop.fs.AbstractFileSystem.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS"
         # ── Event Log (cho Spark History Server) ──
         - "--conf"
         - "spark.eventLog.enabled=true"
